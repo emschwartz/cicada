@@ -1,0 +1,25 @@
+{
+  "name": "cicada",
+  "version": "0.1.0",
+  "description": "Standalone ILP/SPSP Server",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start" "node server.js"
+  },
+  "keywords": [
+    "interledger",
+    "ilp",
+    "spsp",
+    "payment",
+    "micropayment"
+  ],
+  "author": "Evan Schwartz <evan@ripple.com>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "ilp": "^11.2.0",
+    "ilp-plugin-payment-channel-framework": "git+https://github.com/interledgerjs/ilp-plugin-payment-channel-framework.git",
+    "koa": "^2.3.0",
+    "koa-bodyparser": "^4.2.0",
+    "koa-router": "^7.2.1"
+  }
+}
