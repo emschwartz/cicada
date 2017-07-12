@@ -5,6 +5,7 @@ const crypto = require('crypto')
 const Koa = require('koa')
 const Router = require('koa-router')
 const Parser = require('koa-bodyparser')
+const Cors = require('koa-cors')
 const ILP = require('ilp')
 const Plugin = require('ilp-plugin-payment-channel-framework')
 const { parseIlpToken } = require('./ilpToken')
@@ -43,6 +44,7 @@ router.get('/.well-known/webfinger', (ctx) => {
       href: serverUrl
     }]
   }
+  ctx.set('Access-Control-Allow-Origin', '*')
   ctx.body = body
 })
 
@@ -68,7 +70,9 @@ router.post('/', async (ctx) => {
   }
 
   try {
-    ctx.request.body = await plugin.receive(method, ctx.request.body)
+    ctx.body = await plugin.receive(method, ctx.request.body)
+    console.log('sending response', ctx.body)
+    ctx.status = 200
   } catch (err) {
     console.error('error processing rpc request', err)
     return ctx.throw(422, err.message)
@@ -84,6 +88,7 @@ router.get('/', async (ctx) => {
     receiverSecret: secret
   })
 
+  ctx.set('Access-Control-Allow-Origin', '*')
   ctx.body = {
     destination_account: psk.destinationAccount,
     shared_secret: psk.sharedSecret,
@@ -104,6 +109,10 @@ router.get('/', async (ctx) => {
 
 app
   .use(Parser())
+  .use(Cors({
+    origin: '*',
+    methods: ['GET', 'POST']
+  }))
   .use(router.routes())
   .use(router.allowedMethods())
 
