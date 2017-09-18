@@ -68,37 +68,6 @@ router.get('/.well-known/webfinger', (ctx) => {
   ctx.body = body
 })
 
-// RPC
-router.post('/', async (ctx) => {
-  console.log('got rpc request')
-  const prefix = ctx.query.prefix
-  const method = ctx.query.method
-  const auth = ctx.request.headers.authorization
-
-  if (typeof prefix !== 'string' || typeof auth !== 'string') {
-    console.error('unauthorized rpc request', ctx.query, ctx.request.body)
-    return ctx.throw(401)
-  }
-  if (!method) {
-    return ctx.throw(400, 'method is required')
-  }
-
-  const [ , authToken ] = auth.match(/^Bearer (.+)$/) || []
-  if (authToken !== ilpCredentials.token) {
-    console.error('unauthorized rpc request', ctx.query, ctx.request.body)
-    return ctx.throw(401)
-  }
-
-  try {
-    ctx.body = await plugin.receive(method, ctx.request.body)
-    console.log('sending response', ctx.body)
-    ctx.status = 200
-  } catch (err) {
-    console.error('error processing rpc request', err)
-    return ctx.throw(422, err.message)
-  }
-})
-
 // SPSP
 router.get('/', async (ctx) => {
   console.log('got spsp query')
