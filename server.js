@@ -7,26 +7,46 @@ const Router = require('koa-router')
 const Parser = require('koa-bodyparser')
 const Cors = require('koa-cors')
 const ILP = require('ilp')
-const Plugin = require('ilp-plugin-payment-channel-framework')
-const { parseIlpToken } = require('./ilpToken')
 
 const port = process.env.PORT || 3000
-const ilpToken = process.env.ILP_TOKEN
-const serverUrl = process.env.SERVER_URL
-if (!ilpToken) {
-  throw new Error('Cicadas don\'t live long, but while they do they require an ILP_TOKEN')
+const btpServerUrl = process.env.BTP_SERVER_URL
+const ilpCredentialsString = process.env.ILP_CREDENTIALS
+const spspServerUrl = process.env.SPSP_SERVER_URL
+
+let ilpCredentials
+let ilpPluginName
+if (ilpCredentialsString) {
+  ilpPluginName = process.env.ILP_PLUGIN_NAME || 'ilp-plugin-payment-channel-framework'
+  try {
+    ilpCredentials = JSON.parse(ilpCredentialsString)
+  } catch (err) {
+    if (err.name === 'SyntaxError') {
+      throw new Error('Invalid syntax in ILP_CREDENTIALS (' + err.message + '): \n' + ilpCredentialsString)
+    } else {
+      throw err
+    }
+  }
+} else if (btpServerUrl) {
+  ilpPluginName = 'ilp-plugin-payment-channel-framework'
+  ilpCredentials = {
+    server: btpServerUrl
+  }
+} else {
+  throw new Error('Cicadas don\'t live long, but while they do they require a BTP_SERVER_URL or ILP_PLUGIN_NAME and ILP_CREDENTIALS')
 }
-if (!serverUrl) {
-  throw new Error('Cicadas don\'t live long, but while they do they need a SERVER_URL so they know where they\'re living')
+
+if (!spspServerUrl) {
+  throw new Error('Cicadas don\'t live long, but while they do they need an SPSP_SERVER_URL so they know where they\'re living')
 }
+
+const Plugin = require(ilpPluginName)
+const plugin = new Plugin(ilpCredentials)
 
 // TODO add webhook URL
 
 const app = new Koa()
 const router = new Router()
 
-const ilpCredentials = parseIlpToken(ilpToken)
-const plugin = new Plugin(ilpCredentials)
 const secret = crypto.randomBytes(32)
 
 // Webfinger
@@ -41,7 +61,7 @@ router.get('/.well-known/webfinger', (ctx) => {
       href: plugin.getInfo().prefix + 'client'
     }, {
       rel: 'https://interledger.org/rel/spsp/v2',
-      href: serverUrl
+      href: spspServerUrl
     }]
   }
   ctx.set('Access-Control-Allow-Origin', '*')
