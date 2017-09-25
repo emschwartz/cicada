@@ -7,40 +7,86 @@ const Router = require('koa-router')
 const Parser = require('koa-bodyparser')
 const Cors = require('koa-cors')
 const ILP = require('ilp')
+const WebSocket = require('ws')
+const EventEmitter = require('events')
+const btp = require('btp-packet')
+const base64url = require('base64url')
 
 const port = process.env.PORT || 3000
 const btpServerUrl = process.env.BTP_SERVER_URL
 const ilpCredentialsString = process.env.ILP_CREDENTIALS
 const spspServerUrl = process.env.SPSP_SERVER_URL
 
-let ilpCredentials
-let ilpPluginName
-if (ilpCredentialsString) {
-  ilpPluginName = process.env.ILP_PLUGIN_NAME || 'ilp-plugin-payment-channel-framework'
-  try {
-    ilpCredentials = JSON.parse(ilpCredentialsString)
-  } catch (err) {
-    if (err.name === 'SyntaxError') {
-      throw new Error('Invalid syntax in ILP_CREDENTIALS (' + err.message + '): \n' + ilpCredentialsString)
-    } else {
-      throw err
+
+class Plugin extends EventEmitter {
+  constructor (ws) {
+    super()
+    this.ws = null
+  }
+
+  connect () {
+
+  }
+
+  getInfo () {
+    return {
+      prefix: 'test.blah.',
+      currencyCode: 'xyz',
+      currencyScale: 6
     }
   }
-} else if (btpServerUrl) {
-  ilpPluginName = 'ilp-plugin-payment-channel-framework'
-  ilpCredentials = {
-    server: btpServerUrl
+
+  getAccount () {
+    return 'test.blah.server'
   }
-} else {
-  throw new Error('Cicadas don\'t live long, but while they do they require a BTP_SERVER_URL or ILP_PLUGIN_NAME and ILP_CREDENTIALS')
-}
 
-if (!spspServerUrl) {
-  throw new Error('Cicadas don\'t live long, but while they do they need an SPSP_SERVER_URL so they know where they\'re living')
-}
+  addSocket(stream) {
+    this.ws = stream
+    this.ws.on('message', (message) => this.handleMessage(message))
+  }
 
-const Plugin = require(ilpPluginName)
-const plugin = new Plugin(ilpCredentials)
+  handleMessage (message) {
+    if (!message || message.length === 0) {
+      return
+    }
+    const packet = btp.deserialize(message)
+    console.log('got packet', JSON.stringify(packet, null, 2))
+    switch (packet.type) {
+      case btp.TYPE_PREPARE:
+        this.ws.send(btp.serializeResponse(packet.requestId, []))
+
+        this.emit('incoming_prepare', {
+          id: packet.data.transferId,
+          amount: packet.data.amount,
+          executionCondition: packet.data.executionCondition,
+          expiresAt: packet.data.expiresAt,
+          ilp: base64url(packet.data.protocolData[0].data),
+          custom: {},
+          noteToSelf: {}
+        })
+        break
+      default:
+        throw new Error('unknown message type')
+        break
+    }
+
+  }
+
+  fulfillCondition(transferId, fulfillment) {
+    const packet = btp.serializeFulfill({
+      transferId,
+      fulfillment,
+    }, 1, [])
+    this.ws.send(packet)
+    console.log('sent fulfillment', transferId, fulfillment)
+    return Promise.resolve()
+  }
+
+  rejectIncomingTransfer(transferId, rejectionReason) {
+    console.log('rejected transfer with reason', rejectionReason)
+  }
+}
+const plugin = new Plugin()
 
 // TODO add webhook URL
 
@@ -58,7 +104,7 @@ router.get('/.well-known/webfinger', (ctx) => {
       href: 'there is no ledger'
     }, {
       rel: 'https://interledger.org/rel/ilpAddress',
-      href: plugin.getInfo().prefix + 'client'
+      href: plugin.getAccount()
     }, {
       rel: 'https://interledger.org/rel/spsp/v2',
       href: spspServerUrl
@@ -71,7 +117,7 @@ router.get('/.well-known/webfinger', (ctx) => {
 // SPSP
 router.get('/', async (ctx) => {
   console.log('got spsp query')
-  const ilpAddress = plugin.getInfo().prefix + 'client'
+  const ilpAddress = plugin.getAccount()
   const psk = ILP.PSK.generateParams({
     destinationAccount: ilpAddress,
     receiverSecret: secret
@@ -106,9 +152,11 @@ app
   .use(router.allowedMethods())
 
 async function main () {
-  console.log(ilpCredentials)
+  const wss = new WebSocket.Server({ port: 8080 })
+  wss.on('connection', (ws) => {
+    plugin.addSocket(ws)
+  })
   await plugin.connect()
-  await plugin.getInfo()
   console.log('plugin connected')
   plugin.on('error', (err) => {
     console.error('plugin error:', err)
